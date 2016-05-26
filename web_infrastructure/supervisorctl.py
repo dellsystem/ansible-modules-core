@@ -64,7 +64,7 @@ options:
       - The desired state of program/group.
     required: true
     default: null
-    choices: [ "present", "started", "stopped", "restarted", "absent" ]
+    choices: [ "present", "started", "stopped", "restarted", "absent" , "reloaded"]
   supervisorctl_path:
     description:
       - path to supervisorctl executable
@@ -74,6 +74,7 @@ options:
 notes:
   - When C(state) = I(present), the module will call C(supervisorctl reread) then C(supervisorctl add) if the program/group does not exist.
   - When C(state) = I(restarted), the module will call C(supervisorctl update) then call C(supervisorctl restart).
+  - When C(state) = I(reloaded), the module will call (supervisorctl update) then call C(supervisorctl signal SIGHUP).
 requirements: [ "supervisorctl" ]
 author:
     - "Matt Wright (@mattupstate)"
@@ -86,6 +87,9 @@ EXAMPLES = '''
 
 # Manage the state of program group to be in 'started' state.
 - supervisorctl: name='my_apps:' state=started
+
+# Reload the program gracefully, sending the SIGHUP signal.
+- supervisorctl name='my_app state=reloaded
 
 # Restart my_app, reading supervisorctl configuration from a specified file.
 - supervisorctl: name=my_app state=restarted config=/var/opt/my_project/supervisord.conf
@@ -103,7 +107,7 @@ def main():
         username=dict(required=False),
         password=dict(required=False),
         supervisorctl_path=dict(required=False, type='path'),
-        state=dict(required=True, choices=['present', 'started', 'restarted', 'stopped', 'absent'])
+        state=dict(required=True, choices=['present', 'started', 'restarted', 'stopped', 'absent', 'reloaded'])
     )
 
     module = AnsibleModule(argument_spec=arg_spec, supports_check_mode=True)
@@ -200,6 +204,14 @@ def main():
             module.fail_json(name=name, msg="ERROR (no such process)")
 
         take_action_on_processes(processes, lambda s: True, 'restart', 'started')
+
+    if state == 'reloaded':
+        rc, out, err = run_supervisorctl('update', check_rc=True)
+        processes = get_matched_processes()
+        if len(processes) == 0:
+            module.fail_json(name=name, msg="ERROR (no such process)")
+
+        take_action_on_processes(processes, lambda s: True, 'signal SIGHUP', 'signalled')
 
     processes = get_matched_processes()
 
